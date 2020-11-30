@@ -21,6 +21,7 @@ import {
 } from '../utils';
 import { info } from '../debugLog';
 import { templateRegistion } from '../templates';
+// import { debug } from 'console';
 
 export class FileStructures {
   constructor(
@@ -29,18 +30,19 @@ export class FileStructures {
     private surrounding = Surrounding.typeScript,
     private baseDir = 'src/service',
     private templateType = ''
-  ) { }
+  ) {}
 
   getMultipleOriginsFileStructures() {
-
     const files = {};
 
-    this.generators.filter(generator => generator.outDir === this.baseDir).forEach(generator => {
-      const dsName = generator.dataSource.name;
-      const dsFiles = this.getOriginFileStructures(generator, true);
+    this.generators
+      .filter(generator => generator.outDir === this.baseDir)
+      .forEach(generator => {
+        const dsName = generator.dataSource.name;
+        const dsFiles = this.getOriginFileStructures(generator, true);
 
-      files[dsName] = dsFiles;
-    });
+        files[dsName] = dsFiles;
+      });
 
     return {
       ...files,
@@ -52,11 +54,7 @@ export class FileStructures {
 
   getBaseClassesInDeclaration(originCode: string, usingMultipleOrigins: boolean) {
     if (usingMultipleOrigins) {
-      return `
-      declare namespace defs {
-        export ${originCode}
-      };
-      `;
+      return originCode;
     }
 
     return `
@@ -66,11 +64,7 @@ export class FileStructures {
 
   getModsDeclaration(originCode: string, usingMultipleOrigins: boolean) {
     if (usingMultipleOrigins) {
-      return `
-      declare namespace API {
-        export ${originCode}
-      };
-      `;
+      return originCode;
     }
 
     return `
@@ -100,7 +94,7 @@ export class FileStructures {
     if (!generator.hasContextBund) {
       generator.getBaseClassesInDeclaration = this.getBaseClassesInDeclaration.bind(
         this,
-        generator.getBaseClassesInDeclaration(),
+        generator.getBaseClassesInDeclaration(usingMultipleOrigins),
         usingMultipleOrigins
       );
       generator.getModsDeclaration = this.getModsDeclaration.bind(
@@ -115,6 +109,7 @@ export class FileStructures {
       [getFileName('baseClass', this.surrounding)]: generator.getBaseClassesIndex.bind(generator),
       mods: mods,
       [indexFileName]: generator.getIndex.bind(generator),
+      definitions: generator.getDeclarationDir(),
       'api.d.ts': generator.getDeclaration.bind(generator)
     };
 
@@ -161,16 +156,14 @@ export class FileStructures {
   }
 
   getMultipleOriginsDataSourceName() {
-
     const dsNames = this.generators.map(ge => ge.dataSource.name);
 
     if (this.judgeHasMultipleFilesName()) {
       const generate = this.generators.find(ge => ge.outDir === this.baseDir);
 
       if (generate) {
-        return [generate.dataSource.name]
+        return [generate.dataSource.name];
       }
-
     }
 
     return dsNames;
@@ -179,7 +172,7 @@ export class FileStructures {
   judgeHasMultipleFilesName(): boolean {
     return this.generators.some(generate => {
       return generate.outDir !== this.baseDir;
-    })
+    });
   }
 
   getDataSourcesTs() {
@@ -209,10 +202,10 @@ export class FileStructures {
 
     return `
     ${dsNames
-        .map(name => {
-          return `/// <reference path="./${name}/api.d.ts" />`;
-        })
-        .join('\n')}
+      .map(name => {
+        return `/// <reference path="./${name}/api.d.ts" />`;
+      })
+      .join('\n')}
     `;
   }
 
@@ -221,7 +214,7 @@ export class FileStructures {
       // generators 长度大于1且outDir不相同时，需要拆分生成代码
       const hasMultipleOutDir = this.generators.some(generate => {
         return generate.outDir !== this.baseDir;
-      })
+      });
 
       let dataSources;
 
@@ -232,11 +225,7 @@ export class FileStructures {
         dataSources = this.generators.map(ge => ge.dataSource);
       }
 
-      return JSON.stringify(
-        dataSources,
-        null,
-        2
-      );
+      return JSON.stringify(dataSources, null, 2);
     }
   }
 }
@@ -248,7 +237,7 @@ export class CodeGenerator {
 
   hasContextBund = false;
 
-  constructor(public surrounding = Surrounding.typeScript, public outDir = '') { }
+  constructor(public surrounding = Surrounding.typeScript, public outDir = '') {}
 
   setDataSource(dataSource: StandardDataSource) {
     this.dataSource = dataSource;
@@ -273,25 +262,34 @@ export class CodeGenerator {
   /** 获取所有基类的类型定义代码，一个 namespace
    * surrounding, 优先级高于this.surrounding,用于生成api.d.ts时强制保留类型
    */
-  getBaseClassesInDeclaration() {
-    const content = `namespace ${this.dataSource.name || 'defs'} {
-      ${this.dataSource.baseClasses
-        .map(
-          base => `
-        export ${this.getBaseClassInDeclaration(base)}
-      `
-        )
-        .join('\n')}
-    }
-    `;
+  getBaseClassesInDeclaration(usingMultipleOrigins = false) {
+    const obj = {
+      'baseClasses.d.ts': this.dataSource.baseClasses
+        .map(base => {
+          return `/// <reference path='./${base.name}.d.ts' />`;
+        })
+        .join('\n')
+    };
 
-    return content;
+    const ns = this.dataSource.name;
+
+    const getClazz = base => `export ${this.getBaseClassInDeclaration(base)}`;
+
+    this.dataSource.baseClasses.forEach(base => {
+      obj[`${base.name}.d.ts`] = `
+      declare namespace defs {
+        ${usingMultipleOrigins ? `declare namespace ${ns} { ${getClazz(base)} }` : getClazz(base)}
+      }
+    `;
+    });
+
+    return obj;
   }
 
   getBaseClassesInDeclarationWithMultipleOrigins() {
     return `
       declare namespace defs {
-        export ${this.getBaseClassesInDeclaration()}
+        export {}
       }
     `;
   }
@@ -330,49 +328,85 @@ export class CodeGenerator {
 
   /** 获取模块的类型定义代码，一个 namespace ，一般不需要覆盖 */
   getModsDeclaration() {
-    const mods = this.dataSource.mods;
-    const content = `namespace ${this.dataSource.name || 'API'} {
-        ${mods
-        .map(
-          mod => `
-          /**
-           * ${mod.description}
-           */
-          export namespace ${reviseModName(mod.name)} {
-            ${mod.interfaces.map(this.getInterfaceInDeclaration.bind(this)).join('\n')}
-          }
-        `
-        )
-        .join('\n\n')}
-      }
-    `;
+    let result = {};
 
-    return content;
+    const entry = [];
+
+    const mods = this.dataSource.mods;
+    // const content = `namespace ${this.dataSource.name || 'API'} {
+    //     ${
+    //       )
+    //       .join('\n\n')}
+    //   }
+    // `;
+
+    // `
+    //       /**
+    //        * ${mod.description}
+    //        */
+    //       export namespace ${reviseModName(mod.name)} {
+    //         ${mod.interfaces.map(this.getInterfaceInDeclaration.bind(this)).join('\n')}
+    //       }
+    //     `
+
+    mods.forEach(mod => {
+      const modsResult = {};
+      mod.interfaces.forEach(inter => {
+        modsResult[`${inter.name}.d.ts`] = `
+          declare namespace  API {
+
+            export namespace ${this.dataSource.name} {
+                 ${this.getInterfaceInDeclaration(inter)}
+            }
+          }
+          
+          `;
+        entry.push(`/// <reference path='./${reviseModName(mod.name)}/${inter.name}.d.ts' />`);
+      });
+      result[reviseModName(mod.name)] = modsResult;
+
+      result['mods.d.ts'] = entry.join('\n');
+    });
+
+    return result;
   }
 
-  getModsDeclarationWithMultipleOrigins() { }
+  getModsDeclarationWithMultipleOrigins() {}
 
-  getModsDeclarationWithSingleOrigin() { }
+  getModsDeclarationWithSingleOrigin() {}
 
   /** 获取公共的类型定义代码 */
   getCommonDeclaration() {
-    return '';
+    return `
+        type ObjectMap<Key extends string | number | symbol = any, Value = any> = {
+          [key in Key]: Value;
+        }
+        `;
   }
 
   /** 获取总的类型定义代码 */
   getDeclaration() {
     return `
-      type ObjectMap<Key extends string | number | symbol = any, Value = any> = {
-        [key in Key]: Value;
-      }
-
-      ${this.getCommonDeclaration()}
-
-      ${this.getBaseClassesInDeclaration()}
-
-      ${this.getModsDeclaration()}
-    `;
+      /// <reference path='./definitions/common.d.ts' />
+      /// <reference path='./definitions/defs/baseClasses.d.ts' />
+      /// <reference path='./definitions/mods/mods.d.ts' />
+      `;
   }
+
+  getDeclarationDir() {
+    return {
+      'common.d.ts': this.getCommonDeclaration(),
+      defs: this.getBaseClassesInDeclaration(),
+      mods: this.getModsDeclaration()
+    };
+  }
+
+  //   ${this.getCommonDeclaration()}
+
+  //   ${this.getBaseClassesInDeclaration()}
+
+  //   ${this.getModsDeclaration()}
+  // `;
 
   /** 获取接口类和基类的总的 index 入口文件代码 */
   getIndex() {
@@ -401,11 +435,11 @@ export class CodeGenerator {
       base => `
         class ${base.name} {
           ${base.properties
-          .map(prop => {
-            return prop.toPropertyCodeWithInitValue(base.name);
-          })
-          .filter(id => id)
-          .join('\n')}
+            .map(prop => {
+              return prop.toPropertyCodeWithInitValue(base.name);
+            })
+            .filter(id => id)
+            .join('\n')}
         }
       `
     );
@@ -514,7 +548,7 @@ export class FilesManager {
   report = info;
   prettierConfig: {};
 
-  constructor(public fileStructures: FileStructures, private baseDir: string) { }
+  constructor(public fileStructures: FileStructures, private baseDir: string) {}
 
   /** 初始化清空路径 */
   private initPath(path: string) {
@@ -674,7 +708,7 @@ export class FilesManager {
   /** 根据 Codegenerator 配置生成目录和文件 */
   async generateFiles(files: {}, dir = this.baseDir) {
     const currFiles = await fs.readdir(dir);
-
+    debugger;
     const promises = _.map(files, async (value: string | {}, name) => {
       const currPath = `${dir}/${name}`;
 
