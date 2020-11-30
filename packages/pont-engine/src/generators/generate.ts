@@ -333,21 +333,6 @@ export class CodeGenerator {
     const entry = [];
 
     const mods = this.dataSource.mods;
-    // const content = `namespace ${this.dataSource.name || 'API'} {
-    //     ${
-    //       )
-    //       .join('\n\n')}
-    //   }
-    // `;
-
-    // `
-    //       /**
-    //        * ${mod.description}
-    //        */
-    //       export namespace ${reviseModName(mod.name)} {
-    //         ${mod.interfaces.map(this.getInterfaceInDeclaration.bind(this)).join('\n')}
-    //       }
-    //     `
 
     mods.forEach(mod => {
       const modsResult = {};
@@ -356,7 +341,12 @@ export class CodeGenerator {
           declare namespace  API {
 
             export namespace ${this.dataSource.name} {
-                 ${this.getInterfaceInDeclaration(inter)}
+              /**
+               //        * ${mod.description}
+               //        */
+               export namespace ${reviseModName(mod.name)} {
+                ${this.getInterfaceInDeclaration(inter)}
+               }
             }
           }
           
@@ -377,16 +367,15 @@ export class CodeGenerator {
 
   /** 获取公共的类型定义代码 */
   getCommonDeclaration() {
-    return `
-        type ObjectMap<Key extends string | number | symbol = any, Value = any> = {
-          [key in Key]: Value;
-        }
-        `;
+    return '';
   }
 
   /** 获取总的类型定义代码 */
   getDeclaration() {
     return `
+    type ObjectMap<Key extends string | number | symbol = any, Value = any> = {
+      [key in Key]: Value;
+    }
       /// <reference path='./definitions/common.d.ts' />
       /// <reference path='./definitions/defs/baseClasses.d.ts' />
       /// <reference path='./definitions/mods/mods.d.ts' />
